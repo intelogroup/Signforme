@@ -5,36 +5,7 @@ from datetime import datetime, timedelta
 import json
 
 # Custom CSS for navigation
-st.markdown("""
-<style>
-    .nav-link {
-        padding: 10px 15px;
-        border-radius: 5px;
-        margin: 5px 0;
-        text-decoration: none;
-        display: flex;
-        align-items: center;
-        color: white;
-        font-weight: bold;
-    }
-    .nav-upload {
-        background-color: #FF4B4B;
-    }
-    .nav-status {
-        background-color: #00CC00;
-    }
-    .nav-history {
-        background-color: #000080;
-    }
-    .nav-analytics {
-        background-color: #FF9900;
-    }
-    .nav-icon {
-        margin-right: 10px;
-        font-size: 20px;
-    }
-</style>
-""", unsafe_allow_html=True)
+
 
 # Initialize session state
 if 'logged_in' not in st.session_state:
@@ -512,20 +483,7 @@ def show_enhanced_analytics():
                 st.success("Report downloaded successfully!")
 
 def show_navigation():
-    st.sidebar.markdown("""
-        <a href="#" class="nav-link nav-upload" onclick=''>
-            <span class="nav-icon">📤</span> Upload
-        </a>
-        <a href="#" class="nav-link nav-status" onclick=''>
-            <span class="nav-icon">📋</span> Status
-        </a>
-        <a href="#" class="nav-link nav-history" onclick=''>
-            <span class="nav-icon">📚</span> History
-        </a>
-        <a href="#" class="nav-link nav-analytics" onclick=''>
-            <span class="nav-icon">📊</span> Analytics
-        </a>
-    """, unsafe_allow_html=True)
+   
     
     # Hidden radio for actual navigation
     return st.sidebar.radio("", ["Upload", "Status", "History", "Analytics"], 
