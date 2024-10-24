@@ -549,7 +549,7 @@ def main():
         # Header with profile menu
         header_col1, header_col2 = st.columns([0.7, 0.3])
         with header_col1:
-            st.title("SIGNER   ✒️")
+            st.title("Signforme.AI   ✒️")
         with header_col2:
             with st.expander("👤 Profile Menu"):
                 st.write(f"Welcome, Admin!")
