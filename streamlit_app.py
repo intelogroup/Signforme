@@ -92,6 +92,7 @@ def analyze_with_claude(text):
 4. DATES & NUMBERS: List any significant dates, numbers, or quantities
 5. RELATIONSHIPS: Identify any relationships or connections between named entities
 6. SUMMARY: Provide a brief summary of the document's main purpose
+7. Name CHECK: Check if the name Maxi raymonville in mentioned in the document
 
 Please be precise and factual. If you're uncertain about any information, indicate that explicitly.
 
@@ -552,7 +553,7 @@ def main():
             st.title("Signforme.AI   ✒️")
         with header_col2:
             with st.expander("👤 Profile Menu"):
-                st.write(f"Welcome, Admin!")
+                st.write(f"Welcome, this is a test environment!")
                 st.divider()
                 if st.button("📊 Dashboard"):
                     st.session_state['selected_view'] = 'Analytics'
