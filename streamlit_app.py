@@ -484,7 +484,20 @@ def show_enhanced_analytics():
 
 def show_navigation():
    
-    
+     st.sidebar ("""
+        <a href="#" class="nav-link nav-upload" onclick=''>
+            <span class="nav-icon">📤</span> Upload
+        </a>
+        <a href="#" class="nav-link nav-status" onclick=''>
+            <span class="nav-icon">📋</span> Status
+        </a>
+        <a href="#" class="nav-link nav-history" onclick=''>
+            <span class="nav-icon">📚</span> History
+        </a>
+        <a href="#" class="nav-link nav-analytics" onclick=''>
+            <span class="nav-icon">📊</span> Analytics
+        </a>
+    """, unsafe_allow_html=True)
     # Hidden radio for actual navigation
     return st.sidebar.radio("", ["Upload", "Status", "History", "Analytics"], 
                           key="selected_view", label_visibility="collapsed")
