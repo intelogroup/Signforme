@@ -104,7 +104,7 @@ Document content to analyze:
             "messages": [
                 {"role": "user", "content": prompt.format(text=text)}
             ],
-            "max_tokens": 1000,
+            "max_tokens": 200,
             "temperature": 0.1
         }
         
@@ -125,7 +125,7 @@ Document content to analyze:
         return None
 
 def login_user(email, password):
-    return email == "admin" and password == "admin123"
+    return email == "jimkalinov@gmail.com" and password == "Goldyear2023#*"
 
 def log_user_action(action, details):
     st.session_state['user_actions'].append({
@@ -549,17 +549,15 @@ def main():
         # Header with profile menu
         header_col1, header_col2 = st.columns([0.7, 0.3])
         with header_col1:
-            st.title("Document Analyzer & Signer ✒️")
+            st.title("SIGNER   ✒️")
         with header_col2:
             with st.expander("👤 Profile Menu"):
                 st.write(f"Welcome, Admin!")
                 st.divider()
                 if st.button("📊 Dashboard"):
                     st.session_state['selected_view'] = 'Analytics'
-                if st.button("👤 My Profile"):
-                    st.info("Profile settings coming soon")
                 if st.button("ℹ️ About"):
-                    st.info("Document Analyzer & Signer v4.0")
+                    st.info("Document Analyzer & Signer v4.0  By Kalinov Jim")
                 if st.button("🚪 Logout"):
                     log_user_action('logout', 'User logged out')
                     st.session_state['logged_in'] = False
