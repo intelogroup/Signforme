@@ -484,7 +484,7 @@ def show_enhanced_analytics():
 
 def show_navigation():
    
-     st.sidebar ("""
+     st.sidebar.markdown ("""
         <a href="#" class="nav-link nav-upload" onclick=''>
             <span class="nav-icon">📤</span> Upload
         </a>
