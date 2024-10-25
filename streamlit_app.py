@@ -239,30 +239,120 @@ def show_navigation():
     nav_options = ["Upload", "Status", "History"]
     selected = st.sidebar.radio("Go to", nav_options)
     return selected
-# Part 5: Main Application
+# Part 5: Main Application with `login_user` and Supporting Functions
+
+def login_user(email, password):
+    """Authenticate user with email and password."""
+    if email in st.session_state['users']:
+        user = st.session_state['users'][email]
+        if password == user['password']:
+            st.session_state['current_user'] = {
+                'email': email,
+                'role': user['role'],
+                'name': user['name']
+            }
+            return True
+    return False
+
+def log_user_action(action, details):
+    """Record a user action in the session log."""
+    st.session_state['user_actions'].append({
+        'timestamp': datetime.now(),
+        'action': action,
+        'details': details,
+        'user': st.session_state['current_user']['email']
+    })
+
+def check_expired_items():
+    """Remove expired documents based on preset removal times."""
+    current_time = datetime.now()
+    for doc_id, expiration_time in list(st.session_state['document_removal_times'].items()):
+        if current_time > expiration_time:
+            st.session_state['documents'] = [doc for doc in st.session_state['documents'] if doc['id'] != doc_id]
+            del st.session_state['document_removal_times'][doc_id]
+
 def main():
     if not st.session_state['logged_in']:
+        # Login page
         st.title("SignForMe.AI 📝")
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            if st.form_submit_button("Login") and login_user(email, password):
-                st.session_state['logged_in'] = True
-                st.experimental_rerun()
+        
+        # Center the login form
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            with st.form("login_form"):
+                st.markdown("### Welcome Back! 👋")
+                st.markdown("Please log in to continue")
+                
+                email = st.text_input("Email", placeholder="Enter your email")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+                
+                submitted = st.form_submit_button("Login", use_container_width=True)
+                
+                if submitted:
+                    if login_user(email, password):
+                        st.session_state['logged_in'] = True
+                        log_user_action('login', 'User logged in successfully')
+                        st.success("Login successful! Redirecting...")
+                        st.experimental_rerun()
+                    else:
+                        st.error("Invalid email or password")
+            
+            # App info
+            with st.expander("ℹ️ About SignForMe.AI"):
+                st.markdown("""
+                SignForMe.AI is an intelligent document management system that helps you:
+                - Upload and analyze documents
+                - Track document status
+                - Manage approvals
+                - Generate insights
+                """)
     else:
-        st.title("SignForMe.AI ✒️")
+        # Main application
+        header_col1, header_col2 = st.columns([0.7, 0.3])
+        with header_col1:
+            st.title("SignForMe.AI ✒️")
+        with header_col2:
+            with st.expander("👤 Profile Menu"):
+                st.write(f"Welcome, {st.session_state['current_user']['name']}!")
+                st.write(f"Role: {st.session_state['current_user']['role'].title()}")
+                st.divider()
+                
+                if st.session_state['current_user']['role'] == 'admin':
+                    if st.button("📊 Dashboard"):
+                        st.session_state['selected_view'] = 'Analytics'
+                
+                if st.button("ℹ️ About"):
+                    st.info("""SignForMe.AI v6.0
+                    Developed by Kalinov Jim
+                    
+                    A smart document management system with AI-powered analysis.
+                    """)
+                
+                if st.button("🚪 Logout"):
+                    log_user_action('logout', 'User logged out')
+                    st.session_state['logged_in'] = False
+                    st.experimental_rerun()
+        
+        # Sidebar navigation
         view = show_navigation()
         
-        if view == "Upload":
-            show_upload_section()
-        elif view == "Status":
-            show_status_section()
-        elif view == "History":
-            show_history_section()
+        # Main content container
+        with st.container():
+            if view == "Upload":
+                show_upload_section()
+            elif view == "Status":
+                show_status_section()
+            elif view == "History":
+                show_history_section()
+            elif view == "Analytics":
+                show_enhanced_analytics()
         
-        if st.button("Logout"):
-            st.session_state['logged_in'] = False
-            st.experimental_rerun()
+        # Footer
+        st.sidebar.divider()
+        st.sidebar.caption("""
+        © 2024 SignForMe.AI
+        Version 6.0
+        """)
 
 if __name__ == "__main__":
     main()
