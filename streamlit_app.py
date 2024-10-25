@@ -2,7 +2,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -13,34 +13,16 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'documents' not in st.session_state:
     st.session_state['documents'] = []
-if 'pending_analysis' not in st.session_state:
-    st.session_state['pending_analysis'] = []
 if 'history' not in st.session_state:
     st.session_state['history'] = []
 if 'doc_id_counter' not in st.session_state:
     st.session_state['doc_id_counter'] = 1
-if 'document_removal_times' not in st.session_state:
-    st.session_state['document_removal_times'] = {}
-if 'action_times' not in st.session_state:
-    st.session_state['action_times'] = []
-if 'selected_view' not in st.session_state:
-    st.session_state['selected_view'] = 'Upload'
-if 'user_actions' not in st.session_state:
-    st.session_state['user_actions'] = []
 if 'analyzed_docs' not in st.session_state:
     st.session_state['analyzed_docs'] = set()
 if 'users' not in st.session_state:
     st.session_state['users'] = {
-        'jimkalinov@gmail.com': {
-            'password': 'Goldyear2023#*',
-            'role': 'admin',
-            'name': 'Jim Kalinov'
-        },
-        'userpal@example.com': {
-            'password': 'System1234',
-            'role': 'user',
-            'name': 'User Pal'
-        }
+        'jimkalinov@gmail.com': {'password': 'Goldyear2023#*', 'role': 'admin', 'name': 'Jim Kalinov'},
+        'userpal@example.com': {'password': 'System1234', 'role': 'user', 'name': 'User Pal'}
     }
 if 'current_user' not in st.session_state:
     st.session_state['current_user'] = None
@@ -83,7 +65,6 @@ def extract_text_content(uploaded_file):
     except Exception as e:
         st.warning("Error extracting text content.")
         return ""
-
 # Part 2: AI Analysis and Document Upload Handling
 def analyze_with_claude(text):
     try:
@@ -93,12 +74,12 @@ def analyze_with_claude(text):
             "content-type": "application/json",
         }
         
-        prompt = """Please extract and summarize the document's key details:
-1. KEY POINTS: Main facts and information.
-2. NAMES: Important names and their roles.
-3. DOCUMENT TYPE: Purpose of the document.
-4. DATES & NUMBERS: Noteworthy dates or figures.
-5. SUMMARY: Brief summary (2-3 sentences, 200 tokens max).
+        prompt = """Extract and summarize the document's key details:
+1. KEY POINTS: Main facts.
+2. NAMES: Important names.
+3. DOCUMENT TYPE: Purpose.
+4. DATES & NUMBERS: Noteworthy details.
+5. SUMMARY: Brief summary (200 tokens max).
 
 Document:
 {text}
@@ -152,19 +133,16 @@ def handle_document_upload(uploaded_file, user_email):
         'id': doc_id,
         'name': uploaded_file.name,
         'status': f"Pending {STATUS_EMOJIS['Pending']}",
-        'analysis': None,
         'uploaded_by': user_email
     })
     st.session_state['doc_id_counter'] += 1
 
-    # Email notification for regular users
     if st.session_state['users'][user_email]['role'] != 'admin':
-        subject = f"New Document Upload: {uploaded_file.name}"
-        body = f"Document uploaded by {st.session_state['users'][user_email]['name']} ({user_email})."
+        subject = f"New Document Uploaded: {uploaded_file.name}"
+        body = f"Uploaded by {st.session_state['users'][user_email]['name']} ({user_email})."
         send_email_notification(subject, body)
-    log_user_action('upload', f"Document uploaded by {user_email}: {uploaded_file.name}")
     return doc_id
-# Part 3: Document Analysis, Show Analysis Toggle, and UI Functions
+# Part 3: Document Analysis, Accept/Reject Logic, and UI Functions
 def analyze_document(doc):
     if doc['id'] in st.session_state['analyzed_docs']:
         return False
@@ -176,13 +154,18 @@ def analyze_document(doc):
                 stored_doc['analysis'] = analysis
                 break
         st.session_state['analyzed_docs'].add(doc['id'])
-        log_user_action('analyze', f"Analyzed document: {doc['name']}")
         return True
     return False
 
+def update_document_status(doc, new_status):
+    doc['status'] = new_status
+    for hist_doc in st.session_state['history']:
+        if hist_doc['id'] == doc['id']:
+            hist_doc['status'] = f"{new_status} {STATUS_EMOJIS[new_status]}"
+
 def show_document_card(doc):
     with st.container():
-        col1, col2 = st.columns([3, 1])
+        col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
             st.write(f"📄 {doc['name']} | Status: {doc['status']} {STATUS_EMOJIS[doc['status']]}")
             st.caption(f"Uploaded: {doc['upload_time'].strftime('%Y-%m-%d %H:%M:%S')}")
@@ -190,16 +173,29 @@ def show_document_card(doc):
                 st.caption(f"Uploaded by: {st.session_state['users'][doc['uploaded_by']]['name']}")
         
         if doc.get('analysis'):
-            toggle = st.checkbox("Show Analysis", key=f"show_analysis_{doc['id']}")
+            with col2:
+                toggle = st.checkbox("Show Analysis", key=f"show_analysis_{doc['id']}")
             if toggle:
                 st.markdown("### Analysis Results")
                 st.write(doc['analysis'])
+
+        if st.session_state['current_user']['role'] == 'admin' and doc['status'] == 'Pending':
+            with col2:
+                if st.button("Accept", key=f"accept_{doc['id']}"):
+                    update_document_status(doc, 'Authorized')
+                    st.success("Document Accepted")
+                    st.rerun()
+            with col3:
+                if st.button("Reject", key=f"reject_{doc['id']}"):
+                    update_document_status(doc, 'Rejected')
+                    st.warning("Document Rejected")
+                    st.rerun()
         elif st.session_state['current_user']['role'] == 'admin':
-            if st.button("🔍 Analyze", key=f"analyze_status_{doc['id']}"):
+            if st.button("Analyze", key=f"analyze_{doc['id']}"):
                 with st.spinner("Analyzing document..."):
                     if analyze_document(doc):
                         st.success("Analysis completed!")
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("Analysis failed.")
 # Part 4: Upload, Status, History, and Navigation Functions
@@ -215,34 +211,79 @@ def show_upload_section():
 
 def show_status_section():
     st.header("Document Status 📋")
-    check_expired_items()
     
     filtered_docs = [
-        doc for doc in st.session_state['documents'] 
-        if doc['uploaded_by'] == st.session_state['current_user']['email'] 
-        or st.session_state['current_user']['role'] == 'admin'
+        doc for doc in st.session_state['documents']
+        if st.session_state['current_user']['role'] == 'admin' 
+        or doc['uploaded_by'] == st.session_state['current_user']['email']
     ]
     
-    for doc in filtered_docs:
-        show_document_card(doc)
+    if filtered_docs:
+        status_filter = st.selectbox(
+            "Filter by status",
+            ["All", "Pending", "Authorized", "Rejected"]
+        )
+        
+        if status_filter != "All":
+            filtered_docs = [doc for doc in filtered_docs if doc['status'] == status_filter]
+        
+        for doc in filtered_docs:
+            show_document_card(doc)
+            st.divider()
+    else:
+        st.info("No documents found")
 
 def show_history_section():
     st.header("Document History 📚")
-    history_df = pd.DataFrame(st.session_state['history'])
-    history_df['uploaded_by'] = history_df['uploaded_by'].apply(
-        lambda x: st.session_state['users'][x]['name']
-    )
-    st.dataframe(history_df)
-
-def show_navigation():
-    st.sidebar.title("Navigation 📱")
-    nav_options = ["Upload", "Status", "History"]
-    selected = st.sidebar.radio("Go to", nav_options)
-    return selected
-# Part 5: Main Application with `login_user` and Supporting Functions
+    
+    if st.session_state['history']:
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start date", value=datetime.now() - timedelta(days=30))
+        with col2:
+            end_date = st.date_input("End date", value=datetime.now())
+        
+        df_history = pd.DataFrame(st.session_state['history'])
+        df_history['date'] = pd.to_datetime(df_history['date'])
+        
+        mask = (df_history['date'].dt.date >= start_date) & (df_history['date'].dt.date <= end_date)
+        if st.session_state['current_user']['role'] != 'admin':
+            mask &= df_history['uploaded_by'] == st.session_state['current_user']['email']
+        
+        filtered_df = df_history[mask]
+        
+        if not filtered_df.empty:
+            filtered_df['uploaded_by'] = filtered_df['uploaded_by'].apply(
+                lambda x: st.session_state['users'][x]['name']
+            )
+            
+            st.dataframe(
+                filtered_df.sort_values('date', ascending=False),
+                hide_index=True,
+                column_config={
+                    "date": "Timestamp",
+                    "id": "Document ID",
+                    "name": "Document Name",
+                    "status": "Status",
+                    "uploaded_by": "Uploaded By"
+                }
+            )
+            
+            if st.button("Export History"):
+                csv = filtered_df.to_csv(index=False)
+                st.download_button(
+                    "Download CSV",
+                    csv,
+                    "document_history.csv",
+                    "text/csv",
+                    key='download-csv'
+                )
+        else:
+            st.info("No documents found in selected date range")
+    else:
+        st.info("No document history available")
 
 def login_user(email, password):
-    """Authenticate user with email and password."""
     if email in st.session_state['users']:
         user = st.session_state['users'][email]
         if password == user['password']:
@@ -254,105 +295,63 @@ def login_user(email, password):
             return True
     return False
 
-def log_user_action(action, details):
-    """Record a user action in the session log."""
-    st.session_state['user_actions'].append({
-        'timestamp': datetime.now(),
-        'action': action,
-        'details': details,
-        'user': st.session_state['current_user']['email']
-    })
+def show_navigation():
+    st.sidebar.title("Navigation")
+    return st.sidebar.radio(
+        "",
+        ["Upload", "Status", "History"],
+        label_visibility="collapsed",
+        format_func=lambda x: f"{STATUS_EMOJIS.get(x, '📄')} {x}"
+    )
 
-def check_expired_items():
-    """Remove expired documents based on preset removal times."""
-    current_time = datetime.now()
-    for doc_id, expiration_time in list(st.session_state['document_removal_times'].items()):
-        if current_time > expiration_time:
-            st.session_state['documents'] = [doc for doc in st.session_state['documents'] if doc['id'] != doc_id]
-            del st.session_state['document_removal_times'][doc_id]
-
+# Part 5: Main Application Logic
 def main():
     if not st.session_state['logged_in']:
-        # Login page
         st.title("SignForMe.AI 📝")
         
-        # Center the login form
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             with st.form("login_form"):
-                st.markdown("### Welcome Back! 👋")
-                st.markdown("Please log in to continue")
-                
-                email = st.text_input("Email", placeholder="Enter your email")
-                password = st.text_input("Password", type="password", placeholder="Enter your password")
-                
+                st.markdown("### Welcome! 👋")
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
                 submitted = st.form_submit_button("Login")
                 
                 if submitted:
                     if login_user(email, password):
                         st.session_state['logged_in'] = True
-                        log_user_action('login', 'User logged in successfully')
-                        st.success("Login successful! Redirecting...")
-                        st.rerun()  # Rerun app to show main content
+                        st.success("Login successful!")
+                        st.rerun()
                     else:
                         st.error("Invalid email or password")
-            
-            # App info
-            with st.expander("ℹ️ About SignForMe.AI"):
-                st.markdown("""
-                SignForMe.AI is an intelligent document management system that helps you:
-                - Upload and analyze documents
-                - Track document status
-                - Manage approvals
-                - Generate insights
-                """)
     else:
-        # Main application
         header_col1, header_col2 = st.columns([0.7, 0.3])
         with header_col1:
             st.title("SignForMe.AI ✒️")
         with header_col2:
-            with st.expander("👤 Profile Menu"):
+            with st.expander("👤 Profile"):
                 st.write(f"Welcome, {st.session_state['current_user']['name']}!")
                 st.write(f"Role: {st.session_state['current_user']['role'].title()}")
-                st.divider()
-                
-                if st.session_state['current_user']['role'] == 'admin':
-                    if st.button("📊 Dashboard"):
-                        st.session_state['selected_view'] = 'Analytics'
-                
-                if st.button("ℹ️ About"):
-                    st.info("""SignForMe.AI v6.0
-                    Developed by Kalinov Jim
-                    
-                    A smart document management system with AI-powered analysis.
-                    """)
-                
                 if st.button("🚪 Logout"):
-                    log_user_action('logout', 'User logged out')
-                    st.session_state['logged_in'] = False  # Reset login state for next session
-                    st.rerun()  # Rerun app to return to the login page
+                    st.session_state['logged_in'] = False
+                    st.rerun()
         
-        # Sidebar navigation
         view = show_navigation()
         
-        # Main content container
-        with st.container():
-            if view == "Upload":
-                show_upload_section()
-            elif view == "Status":
-                show_status_section()
-            elif view == "History":
-                show_history_section()
-            elif view == "Analytics":
-                show_enhanced_analytics()
+        if view == "Upload":
+            show_upload_section()
+        elif view == "Status":
+            show_status_section()
+        elif view == "History":
+            show_history_section()
         
         # Footer
         st.sidebar.divider()
         st.sidebar.caption("""
-        © 2024 SignForMe.AI
-        Version 6.0
+        © 2024 SignForMe.AI v6.0
+        By Kalinov Jim
         """)
 
 if __name__ == "__main__":
     main()
+    
