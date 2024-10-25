@@ -95,13 +95,7 @@ def analyze_with_claude(text):
             "content-type": "application/json",
         }
         
-        prompt = """Extract and summarize the key information from this document. Focus on:
-
-1. KEY POINTS: The main facts or important information
-2. NAMES: Any names mentioned and their roles
-3. DOCUMENT TYPE: Type or purpose of the document
-4. DATES & NUMBERS: Important dates and numerical information
-5. SUMMARY: Brief summary of the document (max 2-3 sentences)
+        prompt = """Brief summary of the document (max 2-3 sentences)
 
 Please keep the response concise and focused.
 
