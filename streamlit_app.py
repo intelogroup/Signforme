@@ -26,6 +26,8 @@ if 'selected_view' not in st.session_state:
     st.session_state['selected_view'] = 'Upload'
 if 'user_actions' not in st.session_state:
     st.session_state['user_actions'] = []
+if 'analyzed_docs' not in st.session_state:
+    st.session_state['analyzed_docs'] = set()
 if 'users' not in st.session_state:
     st.session_state['users'] = {
         'jimkalinov@gmail.com': {
@@ -85,33 +87,6 @@ def extract_text_content(uploaded_file):
         st.warning(f"Note: File content might not be perfectly extracted. Proceeding with best effort.")
         return str(content)
 
-def login_user(email, password):
-    if email in st.session_state['users']:
-        user = st.session_state['users'][email]
-        if password == user['password']:
-            st.session_state['current_user'] = {
-                'email': email,
-                'role': user['role'],
-                'name': user['name']
-            }
-            return True
-    return False
-
-def log_user_action(action, details):
-    st.session_state['user_actions'].append({
-        'timestamp': datetime.now(),
-        'action': action,
-        'details': details,
-        'user': st.session_state['current_user']['email']
-    })
-
-def check_expired_items():
-    current_time = datetime.now()
-    for doc_id, expiration_time in list(st.session_state['document_removal_times'].items()):
-        if current_time > expiration_time:
-            st.session_state['documents'] = [doc for doc in st.session_state['documents'] if doc['id'] != doc_id]
-            del st.session_state['document_removal_times'][doc_id]
-
 def analyze_with_claude(text):
     try:
         headers = {
@@ -120,20 +95,17 @@ def analyze_with_claude(text):
             "content-type": "application/json",
         }
         
-        prompt = """Please analyze this document content carefully. Provide a structured analysis with the following:
+        prompt = """Extract and summarize the key information from this document. Focus on:
 
-1. NAMES: List all person names found in the document, with their context if available
-2. KEY INFORMATION: Extract and list the main points or facts
-3. DOCUMENT TYPE: Identify the type or purpose of the document
-4. DATES & NUMBERS: List any significant dates, numbers, or quantities
-5. RELATIONSHIPS: Identify any relationships or connections between named entities
-6. SUMMARY: Provide a brief summary of the document's main purpose
-7. Name CHECK: Check if the name Maxi raymonville in mentioned in the document
+1. KEY POINTS: The main facts or important information
+2. NAMES: Any names mentioned and their roles
+3. DOCUMENT TYPE: Type or purpose of the document
+4. DATES & NUMBERS: Important dates and numerical information
+5. SUMMARY: Brief summary of the document (max 2-3 sentences)
 
-Please be precise and factual. If you're uncertain about any information, indicate that explicitly.
+Please keep the response concise and focused.
 
-Document content to analyze:
-
+Document content:
 {text}"""
         
         data = {
@@ -161,6 +133,33 @@ Document content to analyze:
         st.error(f"Error: {str(e)}")
         return None
 
+def login_user(email, password):
+    if email in st.session_state['users']:
+        user = st.session_state['users'][email]
+        if password == user['password']:
+            st.session_state['current_user'] = {
+                'email': email,
+                'role': user['role'],
+                'name': user['name']
+            }
+            return True
+    return False
+
+def log_user_action(action, details):
+    st.session_state['user_actions'].append({
+        'timestamp': datetime.now(),
+        'action': action,
+        'details': details,
+        'user': st.session_state['current_user']['email']
+    })
+
+def check_expired_items():
+    current_time = datetime.now()
+    for doc_id, expiration_time in list(st.session_state['document_removal_times'].items()):
+        if current_time > expiration_time:
+            st.session_state['documents'] = [doc for doc in st.session_state['documents'] if doc['id'] != doc_id]
+            del st.session_state['document_removal_times'][doc_id]
+
 def handle_document_upload(uploaded_file, user_email):
     doc_id = f"SIGN{st.session_state['doc_id_counter']:03d}"
     upload_time = datetime.now()
@@ -175,12 +174,12 @@ def handle_document_upload(uploaded_file, user_email):
         'file_size': uploaded_file.size,
         'content': extract_text_content(uploaded_file),
         'analysis': None,
-        'uploaded_by': user_email
+        'uploaded_by': user_email,
+        'show_analysis': False  # New field for toggle state
     }
     
     # Add to documents list
     st.session_state['documents'].append(doc_data)
-    st.session_state['pending_analysis'].append(doc_data.copy())
     
     # Add to history
     st.session_state['history'].append({
@@ -210,6 +209,79 @@ Please review this document in the system.
     log_user_action('upload', f"Document uploaded by {user_email}: {uploaded_file.name}")
     return doc_id
 
+def analyze_document(doc):
+    """Analyze a single document and update its analysis"""
+    if doc['id'] in st.session_state['analyzed_docs']:
+        return False
+    
+    analysis = analyze_with_claude(doc['content'])
+    if analysis:
+        # Update document with analysis
+        for stored_doc in st.session_state['documents']:
+            if stored_doc['id'] == doc['id']:
+                stored_doc['analysis'] = analysis
+                break
+        
+        # Update history
+        for hist_doc in st.session_state['history']:
+            if hist_doc['id'] == doc['id']:
+                hist_doc['analysis'] = analysis
+        
+        # Mark as analyzed
+        st.session_state['analyzed_docs'].add(doc['id'])
+        
+        # Send email notification for analysis completion
+        if doc['uploaded_by'] != st.session_state['current_user']['email']:
+            subject = f"Document Analysis Completed: {doc['name']}"
+            body = f"""
+Document analysis has been completed:
+
+Document Name: {doc['name']}
+Analyzed By: {st.session_state['current_user']['name']}
+Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Document ID: {doc['id']}
+
+Please check the analysis results in the system.
+"""
+            send_email_notification(subject, body)
+        
+        log_user_action('analyze', f"Analyzed document: {doc['name']}")
+        return True
+    return False
+
+def show_document_card(doc):
+    """Display a single document card with analysis toggle"""
+    with st.container():
+        # Document header
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write(f"📄 {doc['name']} | Status: {doc['status']} {STATUS_EMOJIS[doc['status']]}")
+            st.caption(f"Uploaded: {doc['upload_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+            if st.session_state['current_user']['role'] == 'admin':
+                st.caption(f"Uploaded by: {st.session_state['users'][doc['uploaded_by']]['name']}")
+        
+        # Analysis section
+        if doc.get('analysis'):
+            # Toggle for analysis
+            if st.button("🔍 Toggle Analysis", key=f"toggle_{doc['id']}"):
+                doc['show_analysis'] = not doc.get('show_analysis', False)
+            
+            # Show analysis if toggled
+            if doc.get('show_analysis', False):
+                with st.container():
+                    st.markdown("### Analysis Results")
+                    sections = doc['analysis'].split('\n')
+                    for section in sections:
+                        if any(header in section for header in [
+                            "KEY POINTS:", "NAMES:", "DOCUMENT TYPE:",
+                            "DATES & NUMBERS:", "SUMMARY:"
+                        ]):
+                            st.markdown(f"**{section}**")
+                        elif section.strip():
+                            st.write(section)
+        
+        st.divider()
+
 def show_upload_section():
     st.header("Upload Documents 📤")
     
@@ -224,63 +296,25 @@ def show_upload_section():
             
         st.success(f"Successfully uploaded {len(uploaded_files)} document(s)!")
 
-    # Show documents available for analysis
-    if st.session_state['pending_analysis']:
+    # Show unanalyzed documents
+    unanalyzed_docs = [doc for doc in st.session_state['documents'] 
+                      if doc['id'] not in st.session_state['analyzed_docs']]
+    
+    if unanalyzed_docs:
         st.subheader("Documents Available for Analysis")
         
-        selected_docs = []
-        for doc in st.session_state['pending_analysis']:
+        for doc in unanalyzed_docs:
             col1, col2 = st.columns([4, 1])
             with col1:
-                selected = st.checkbox(
-                    f"📄 {doc['name']} ({doc['file_type'] or 'unknown type'}) - {doc['file_size']/1024:.1f} KB",
-                    key=f"select_{doc['id']}"
-                )
-                if selected:
-                    selected_docs.append(doc)
-        
-        if selected_docs:
-            if st.button(f"Analyze Selected Documents ({len(selected_docs)})", type="primary"):
-                with st.spinner("Analyzing selected documents..."):
-                    for doc in selected_docs:
-                        # Analyze document
-                        analysis = analyze_with_claude(doc['content'])
-                        
-                        # Update analysis in documents list
-                        for stored_doc in st.session_state['documents']:
-                            if stored_doc['id'] == doc['id']:
-                                stored_doc['analysis'] = analysis
-                                break
-                        
-                        # Update history
-                        for hist_doc in st.session_state['history']:
-                            if hist_doc['id'] == doc['id']:
-                                hist_doc['analysis'] = analysis
-                        
-                        # Remove from pending analysis
-                        st.session_state['pending_analysis'] = [
-                            d for d in st.session_state['pending_analysis'] if d['id'] != doc['id']
-                        ]
-                        
-                        # Send email notification for analysis completion
-                        if doc['uploaded_by'] != st.session_state['current_user']['email']:
-                            subject = f"Document Analysis Completed: {doc['name']}"
-                            body = f"""
-Document analysis has been completed:
-
-Document Name: {doc['name']}
-Analyzed By: {st.session_state['current_user']['name']}
-Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Document ID: {doc['id']}
-
-Please check the analysis results in the system.
-"""
-                            send_email_notification(subject, body)
-                        
-                        log_user_action('analyze', f"Analyzed document: {doc['name']}")
-                
-                st.success("Selected documents analyzed successfully!")
-                st.rerun()
+                st.write(f"📄 {doc['name']} ({doc['file_type'] or 'unknown type'}) - {doc['file_size']/1024:.1f} KB")
+            with col2:
+                if st.button("🔍 Analyze", key=f"analyze_{doc['id']}"):
+                    with st.spinner(f"Analyzing {doc['name']}..."):
+                        if analyze_document(doc):
+                            st.success("Analysis completed!")
+                            st.rerun()
+                        else:
+                            st.error("Analysis failed.")
 
 def show_status_section():
     st.header("Document Status 📋")
@@ -313,38 +347,17 @@ def show_status_section():
     if filtered_docs:
         for doc in filtered_docs:
             with st.container():
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                # Document header and main info
+                col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
                     st.write(f"📄 {doc['name']} | Status: {doc['status']} {STATUS_EMOJIS[doc['status']]}")
                     st.caption(f"Uploaded: {doc['upload_time'].strftime('%Y-%m-%d %H:%M:%S')}")
                     if st.session_state['current_user']['role'] == 'admin':
                         st.caption(f"Uploaded by: {st.session_state['users'][doc['uploaded_by']]['name']}")
                 
-                with col2:
-                    if st.button(f"View", key=f"view_{doc['id']}"):
-                        with st.expander("Document Details", expanded=True):
-                            st.write("File Information:")
-                            st.write(f"Type: {doc['file_type'] or 'unknown'}")
-                            st.write(f"Size: {doc['file_size']/1024:.1f} KB")
-                            if doc.get('analysis'):
-                                st.write("Analysis Results:")
-                                tab1, tab2 = st.tabs(["Formatted Analysis", "Raw Analysis"])
-                                with tab1:
-                                    sections = doc['analysis'].split('\n')
-                                    for section in sections:
-                                        if any(header in section for header in ["NAMES:", "KEY INFORMATION:", 
-                                                                              "DOCUMENT TYPE:", "DATES & NUMBERS:", 
-                                                                              "RELATIONSHIPS:", "SUMMARY:"]):
-                                            st.markdown(f"### {section}")
-                                        elif section.strip():
-                                            st.write(section)
-                                with tab2:
-                                    st.text_area("Full Analysis", doc['analysis'], height=300)
-                            else:
-                                st.info("No analysis available")
-                
+                # Action buttons for pending documents
                 if doc['status'] == 'Pending' and st.session_state['current_user']['role'] == 'admin':
-                    with col3:
+                    with col2:
                         if st.button(f"Accept", key=f"accept_{doc['id']}"):
                             doc['status'] = "Authorized"
                             action_time = datetime.now()
@@ -355,7 +368,7 @@ def show_status_section():
                                     hist_doc['status'] = f"Authorized {STATUS_EMOJIS['Authorized']}"
                                     hist_doc['date'] = action_time.strftime("%Y-%m-%d %H:%M:%S")
                             
-                            # Send email notification to document uploader
+                            # Send email notification
                             if doc['uploaded_by'] != st.session_state['current_user']['email']:
                                 subject = f"Document Approved: {doc['name']}"
                                 body = f"""
@@ -371,11 +384,10 @@ You can check the status in the system.
                                 send_email_notification(subject, body)
                             
                             st.session_state['action_times'].append((doc['upload_time'], action_time))
-                            st.session_state['document_removal_times'][doc['id']] = datetime.now() + timedelta(minutes=5)
                             log_user_action('authorize', f"Authorized document: {doc['name']}")
                             st.rerun()
                     
-                    with col4:
+                    with col3:
                         if st.button(f"Reject", key=f"reject_{doc['id']}"):
                             doc['status'] = "Rejected"
                             action_time = datetime.now()
@@ -386,7 +398,7 @@ You can check the status in the system.
                                     hist_doc['status'] = f"Rejected {STATUS_EMOJIS['Rejected']}"
                                     hist_doc['date'] = action_time.strftime("%Y-%m-%d %H:%M:%S")
                             
-                            # Send email notification to document uploader
+                            # Send email notification
                             if doc['uploaded_by'] != st.session_state['current_user']['email']:
                                 subject = f"Document Rejected: {doc['name']}"
                                 body = f"""
@@ -402,9 +414,34 @@ Please check the status in the system for more information.
                                 send_email_notification(subject, body)
                             
                             st.session_state['action_times'].append((doc['upload_time'], action_time))
-                            st.session_state['document_removal_times'][doc['id']] = datetime.now() + timedelta(minutes=5)
                             log_user_action('reject', f"Rejected document: {doc['name']}")
                             st.rerun()
+                
+                # Analysis section with toggle
+                if doc.get('analysis'):
+                    if st.button("🔍 Toggle Analysis", key=f"toggle_status_{doc['id']}"):
+                        doc['show_analysis'] = not doc.get('show_analysis', False)
+                    
+                    if doc.get('show_analysis', False):
+                        with st.container():
+                            st.markdown("### Analysis Results")
+                            sections = doc['analysis'].split('\n')
+                            for section in sections:
+                                if any(header in section for header in [
+                                    "KEY POINTS:", "NAMES:", "DOCUMENT TYPE:",
+                                    "DATES & NUMBERS:", "SUMMARY:"
+                                ]):
+                                    st.markdown(f"**{section}**")
+                                elif section.strip():
+                                    st.write(section)
+                elif st.session_state['current_user']['role'] == 'admin':
+                    if st.button("🔍 Analyze", key=f"analyze_status_{doc['id']}"):
+                        with st.spinner("Analyzing document..."):
+                            if analyze_document(doc):
+                                st.success("Analysis completed!")
+                                st.rerun()
+                            else:
+                                st.error("Analysis failed.")
                 
                 st.divider()
     else:
@@ -449,11 +486,15 @@ def show_history_section():
                 lambda x: st.session_state['users'][x]['name']
             )
             
+            # Display history table
             st.dataframe(
                 filtered_df.sort_values('date', ascending=False),
                 hide_index=True,
                 column_config={
-                    "date": "Timestamp",
+                    "date": st.column_config.DatetimeColumn(
+                        "Timestamp",
+                        format="D MMM YYYY, HH:mm"
+                    ),
                     "id": "Document ID",
                     "name": "Document Name",
                     "status": "Status",
@@ -461,16 +502,18 @@ def show_history_section():
                 }
             )
             
-            # Export option
-            if st.button("Export History"):
-                csv = filtered_df.to_csv(index=False)
-                st.download_button(
-                    "Download CSV",
-                    csv,
-                    "document_history.csv",
-                    "text/csv",
-                    key='download-csv'
-                )
+            # Export options
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if st.button("Export History"):
+                    csv = filtered_df.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download CSV",
+                        csv,
+                        "document_history.csv",
+                        "text/csv",
+                        key='download-csv'
+                    )
         else:
             st.info("No documents found in selected date range")
     else:
@@ -483,241 +526,269 @@ def show_enhanced_analytics():
         
     st.title("Analytics Dashboard 📊")
     
-    # Main Analytics Tabs
-    tabs = st.tabs(["Document Analytics", "User Activity", "Performance Metrics", "Custom Reports"])
+    if not st.session_state['history']:
+        st.info("No data available for analytics yet.")
+        return
     
-    with tabs[0]:  # Document Analytics
-        st.header("Document Analytics")
+    # Main Analytics Tabs
+    tabs = st.tabs([
+        "📊 Overview", 
+        "👥 User Activity", 
+        "⚡ Performance", 
+        "📈 Trends",
+        "📄 Reports"
+    ])
+    
+    with tabs[0]:  # Overview
+        st.header("System Overview")
         
-        if st.session_state['history']:
-            col1, col2 = st.columns(2)
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        
+        df_history = pd.DataFrame(st.session_state['history'])
+        with col1:
+            st.metric("Total Documents", len(df_history))
+            pending = len([d for d in st.session_state['documents'] if d['status'] == 'Pending'])
+            st.metric("Pending Documents", pending)
+        
+        with col2:
+            analyzed = len(st.session_state['analyzed_docs'])
+            st.metric("Analyzed Documents", analyzed)
+            st.metric("Active Users", len(df_history['uploaded_by'].unique()))
+        
+        with col3:
+            approved = len([d for d in st.session_state['documents'] if d['status'] == 'Authorized'])
+            if len(df_history) > 0:
+                approval_rate = (approved / len(df_history)) * 100
+                st.metric("Approval Rate", f"{approval_rate:.1f}%")
             
-            with col1:
-                # Status Distribution
-                st.subheader("Status Distribution")
-                df_history = pd.DataFrame(st.session_state['history'])
-                status_counts = df_history['status'].apply(lambda x: x.split()[0]).value_counts()
-                st.bar_chart(status_counts)
-                
-                # User Upload Distribution
-                st.subheader("Uploads by User")
-                user_uploads = df_history['uploaded_by'].apply(
-                    lambda x: st.session_state['users'][x]['name']
-                ).value_counts()
-                st.bar_chart(user_uploads)
-            
-            with col2:
-                # Quick Stats
-                st.subheader("Quick Statistics")
-                total_docs = len(df_history)
-                pending_analysis = len(st.session_state['pending_analysis'])
-                analyzed_docs = len([d for d in st.session_state['documents'] if d.get('analysis')])
-                
-                st.metric("Total Documents", total_docs)
-                st.metric("Pending Analysis", pending_analysis)
-                st.metric("Analyzed Documents", analyzed_docs)
-                
-                # User Stats
-                active_users = len(df_history['uploaded_by'].unique())
-                st.metric("Active Users", active_users)
+            today_docs = len(df_history[pd.to_datetime(df_history['date']).dt.date == datetime.now().date()])
+            st.metric("Today's Documents", today_docs)
+        
+        # Status Distribution
+        st.subheader("Document Status Distribution")
+        status_counts = df_history['status'].apply(lambda x: x.split()[0]).value_counts()
+        st.bar_chart(status_counts)
     
     with tabs[1]:  # User Activity
-        st.header("User Activity Analysis")
+        st.header("User Activity")
         
-        if st.session_state['user_actions']:
-            df_actions = pd.DataFrame(st.session_state['user_actions'])
+        df_actions = pd.DataFrame(st.session_state['user_actions'])
+        if not df_actions.empty:
             df_actions['timestamp'] = pd.to_datetime(df_actions['timestamp'])
             df_actions['user_name'] = df_actions['user'].apply(
                 lambda x: st.session_state['users'][x]['name']
             )
             
-            # Activity Timeline
-            st.subheader("Activity Timeline")
-            daily_activity = df_actions.groupby(df_actions['timestamp'].dt.date).size()
-            st.line_chart(daily_activity)
-            
-            # Action Type Distribution
             col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("Action Types")
-                action_counts = df_actions['action'].value_counts()
-                st.bar_chart(action_counts)
             
-            with col2:
-                st.subheader("User Activity")
+            with col1:
+                st.subheader("Activity by User")
                 user_activity = df_actions['user_name'].value_counts()
                 st.bar_chart(user_activity)
             
-            # Recent Activity Log
+            with col2:
+                st.subheader("Actions Distribution")
+                action_counts = df_actions['action'].value_counts()
+                st.bar_chart(action_counts)
+            
+            # Recent Activity Timeline
             st.subheader("Recent Activity")
-            recent_actions = df_actions.sort_values('timestamp', ascending=False).head(10)
-            for _, action in recent_actions.iterrows():
-                st.text(
-                    f"{action['timestamp'].strftime('%Y-%m-%d %H:%M:%S')} - "
-                    f"{action['user_name']}: {action['action']} - {action['details']}"
-                )
+            recent = df_actions.sort_values('timestamp', ascending=False).head(10)
+            for _, action in recent.iterrows():
+                st.text(f"""
+🕒 {action['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}
+👤 {action['user_name']}
+📋 {action['action'].title()}: {action['details']}
+""")
     
-    with tabs[2]:  # Performance Metrics
-        st.header("Performance Metrics")
+    with tabs[2]:  # Performance
+        st.header("System Performance")
         
-        if st.session_state['history']:
+        if st.session_state['action_times']:
             col1, col2 = st.columns(2)
             
             with col1:
-                # Processing Efficiency
-                st.subheader("Processing Efficiency")
                 time_diffs = [(action - upload).total_seconds() 
                              for upload, action in st.session_state['action_times']]
-                if time_diffs:
-                    avg_time = sum(time_diffs) / len(time_diffs)
-                    max_time = max(time_diffs)
-                    min_time = min(time_diffs)
-                    
-                    st.metric("Average Processing Time", f"{avg_time:.1f}s")
-                    st.metric("Fastest Processing", f"{min_time:.1f}s")
-                    st.metric("Slowest Processing", f"{max_time:.1f}s")
-                    
-                    # Time Distribution Chart
-                    st.subheader("Processing Times")
-                    time_df = pd.DataFrame(time_diffs, columns=['seconds'])
-                    st.line_chart(time_df)
+                
+                avg_time = sum(time_diffs) / len(time_diffs)
+                max_time = max(time_diffs)
+                min_time = min(time_diffs)
+                
+                st.metric("Average Processing Time", f"{avg_time:.1f} seconds")
+                st.metric("Fastest Processing", f"{min_time:.1f} seconds")
+                st.metric("Slowest Processing", f"{max_time:.1f} seconds")
             
             with col2:
-                # Success Metrics
-                st.subheader("Success Metrics")
-                df_history = pd.DataFrame(st.session_state['history'])
-                total_docs = len(df_history)
-                
-                if total_docs > 0:
-                    approval_rate = len(df_history[df_history['status'].str.contains('Authorized')]) / total_docs
-                    rejection_rate = len(df_history[df_history['status'].str.contains('Rejected')]) / total_docs
-                    
-                    st.metric("Approval Rate", f"{approval_rate:.1%}")
-                    st.metric("Rejection Rate", f"{rejection_rate:.1%}")
-                    
-                    # Processing Rate Over Time
-                    st.subheader("Processing Rate Trend")
-                    df_history['date'] = pd.to_datetime(df_history['date'])
-                    daily_rate = df_history[df_history['status'].str.contains('Authorized|Rejected')].groupby(
-                        df_history['date'].dt.date
-                    ).size()
-                    st.line_chart(daily_rate)
+                st.subheader("Processing Time Distribution")
+                time_df = pd.DataFrame(time_diffs, columns=['seconds'])
+                st.line_chart(time_df)
     
-    with tabs[3]:  # Custom Reports
-        st.header("Report Generator")
+    with tabs[3]:  # Trends
+        st.header("Trend Analysis")
         
-        # Report Parameters
+        df_history['date'] = pd.to_datetime(df_history['date'])
+        
+        # Daily volume trend
+        st.subheader("Document Volume Trend")
+        daily_volume = df_history.groupby(df_history['date'].dt.date).size()
+        st.line_chart(daily_volume)
+        
+        # Status trends
+        st.subheader("Status Trends")
+        status_by_date = df_history.groupby([
+            df_history['date'].dt.date,
+            df_history['status'].apply(lambda x: x.split()[0])
+        ]).size().unstack(fill_value=0)
+        st.line_chart(status_by_date)
+        
+        # User trends
+        st.subheader("User Activity Trends")
+        user_by_date = df_history.groupby([
+            df_history['date'].dt.date,
+            df_history['uploaded_by'].apply(lambda x: st.session_state['users'][x]['name'])
+        ]).size().unstack(fill_value=0)
+        st.line_chart(user_by_date)
+    
+    with tabs[4]:  # Reports
+        st.header("Custom Reports")
+        
+        # Report parameters
         col1, col2, col3 = st.columns(3)
         with col1:
-            start_date = st.date_input("Start Date", value=datetime.now() - timedelta(days=30))
+            report_start = st.date_input("Start Date", value=datetime.now() - timedelta(days=30))
         with col2:
-            end_date = st.date_input("End Date", value=datetime.now())
+            report_end = st.date_input("End Date", value=datetime.now())
         with col3:
             selected_user = st.selectbox(
                 "Select User",
                 ["All Users"] + [user['name'] for user in st.session_state['users'].values()]
             )
         
+        # Report metrics selection
         metrics = st.multiselect(
-            "Select Metrics",
-            ["Document Statistics", "Processing Times", "User Activity", "Success Rates"],
+            "Select Metrics to Include",
+            ["Document Statistics", "User Activity", "Processing Times", "Status Distribution"],
             default=["Document Statistics"]
         )
         
         if st.button("Generate Report"):
             report_data = {
-                "Report Period": f"{start_date} to {end_date}",
+                "Report Period": f"{report_start} to {report_end}",
                 "Generated At": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "Generated By": st.session_state['current_user']['name'],
                 "Metrics": {}
             }
             
-            df_history = pd.DataFrame(st.session_state['history'])
-            if not df_history.empty:
-                df_history['date'] = pd.to_datetime(df_history['date'])
-                mask = (df_history['date'].dt.date >= start_date) & (df_history['date'].dt.date <= end_date)
-                filtered_df = df_history[mask]
-                
-                if selected_user != "All Users":
-                    user_email = [email for email, user in st.session_state['users'].items() 
-                                if user['name'] == selected_user][0]
-                    filtered_df = filtered_df[filtered_df['uploaded_by'] == user_email]
-                
-                if "Document Statistics" in metrics:
-                    report_data["Metrics"]["Document Statistics"] = {
-                        "Total Documents": len(filtered_df),
-                        "By Status": filtered_df['status'].apply(
-                            lambda x: x.split()[0]).value_counts().to_dict(),
-                        "By User": filtered_df['uploaded_by'].apply(
-                            lambda x: st.session_state['users'][x]['name']
-                        ).value_counts().to_dict()
-                    }
-                
-                if "Success Rates" in metrics:
-                    total = len(filtered_df)
-                    if total > 0:
-                        approved = len(filtered_df[filtered_df['status'].str.contains('Authorized')])
-                        rejected = len(filtered_df[filtered_df['status'].str.contains('Rejected')])
-                        report_data["Metrics"]["Success Rates"] = {
-                            "Approval Rate": f"{(approved/total*100):.1f}%",
-                            "Rejection Rate": f"{(rejected/total*100):.1f}%",
-                            "Pending Rate": f"{((total-approved-rejected)/total*100):.1f}%"
-                        }
+            filtered_history = df_history[
+                (df_history['date'].dt.date >= report_start) & 
+                (df_history['date'].dt.date <= report_end)
+            ]
             
+            if selected_user != "All Users":
+                user_email = [email for email, user in st.session_state['users'].items() 
+                            if user['name'] == selected_user][0]
+                filtered_history = filtered_history[filtered_history['uploaded_by'] == user_email]
+            
+            if "Document Statistics" in metrics:
+                report_data["Metrics"]["Document Statistics"] = {
+                    "Total Documents": len(filtered_history),
+                    "Status Distribution": filtered_history['status'].apply(
+                        lambda x: x.split()[0]).value_counts().to_dict(),
+                    "Analysis Rate": f"{(len(st.session_state['analyzed_docs'])/len(filtered_history)*100):.1f}%"
+                }
+            
+            if "User Activity" in metrics:
+                report_data["Metrics"]["User Activity"] = {
+                    "Active Users": len(filtered_history['uploaded_by'].unique()),
+                    "Documents per User": filtered_history['uploaded_by'].apply(
+                        lambda x: st.session_state['users'][x]['name']
+                    ).value_counts().to_dict()
+                }
+            
+            # Display and download options
             st.json(report_data)
             
-            if st.download_button(
-                "Download Report",
-                data=json.dumps(report_data, indent=2),
-                file_name=f"analytics_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            ):
-                st.success("Report downloaded successfully!")
+            # Export options
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if st.download_button(
+                    "📥 Download Report",
+                    data=json.dumps(report_data, indent=2),
+                    file_name=f"analytics_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                    mime="application/json"
+                ):
+                    st.success("Report downloaded successfully!")
 
 def show_navigation():
-    # Navigation with icons
-    options = {
-        "Upload": "📤 Upload",
-        "Status": "📋 Status",
-        "History": "📚 History",
-        "Analytics": "📊 Analytics"
+    st.sidebar.title("Navigation 📱")
+    
+    nav_options = {
+        "Upload": "📤 Upload Documents",
+        "Status": "📋 Document Status",
+        "History": "📚 Document History",
+        "Analytics": "📊 Analytics Dashboard"
     }
     
+    # Navigation buttons styled as pills
+    st.sidebar.markdown("""
+        <style>
+        div[data-testid="stRadio"] > div {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     selected = st.sidebar.radio(
-        "Navigation",
-        list(options.values()),
-        key="nav_selection",
+        "Go to",
+        list(nav_options.values()),
         label_visibility="collapsed"
     )
     
     # Convert back to original key
-    for key, value in options.items():
+    for key, value in nav_options.items():
         if value == selected:
             return key
-    
-    return "Upload"  # default
+    return "Upload"
 
 def main():
     if not st.session_state['logged_in']:
-        # Login page with centered form
+        # Login page
         st.title("SignForMe.AI 📝")
         
+        # Center the login form
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             with st.form("login_form"):
-                st.write("### Login")
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Login")
+                st.markdown("### Welcome Back! 👋")
+                st.markdown("Please log in to continue")
+                
+                email = st.text_input("Email", placeholder="Enter your email")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+                
+                submitted = st.form_submit_button("Login", use_container_width=True)
                 
                 if submitted:
                     if login_user(email, password):
                         st.session_state['logged_in'] = True
-                        log_user_action('login', 'User logged in')
-                        st.success("Login successful!")
+                        log_user_action('login', 'User logged in successfully')
+                        st.success("Login successful! Redirecting...")
                         st.rerun()
                     else:
                         st.error("Invalid email or password")
+            
+            # App info
+            with st.expander("ℹ️ About SignForMe.AI"):
+                st.markdown("""
+                SignForMe.AI is an intelligent document management system that helps you:
+                - Upload and analyze documents
+                - Track document status
+                - Manage approvals
+                - Generate insights
+                """)
     else:
         # Main application
         header_col1, header_col2 = st.columns([0.7, 0.3])
@@ -728,26 +799,43 @@ def main():
                 st.write(f"Welcome, {st.session_state['current_user']['name']}!")
                 st.write(f"Role: {st.session_state['current_user']['role'].title()}")
                 st.divider()
-                if st.button("📊 Dashboard"):
-                    st.session_state['selected_view'] = 'Analytics'
+                
+                if st.session_state['current_user']['role'] == 'admin':
+                    if st.button("📊 Dashboard"):
+                        st.session_state['selected_view'] = 'Analytics'
+                
                 if st.button("ℹ️ About"):
-                    st.info("SignForMe.AI v5.0 by Kalinov Jim")
+                    st.info("""SignForMe.AI v6.0
+                    Developed by Kalinov Jim
+                    
+                    A smart document management system with AI-powered analysis.
+                    """)
+                
                 if st.button("🚪 Logout"):
                     log_user_action('logout', 'User logged out')
                     st.session_state['logged_in'] = False
                     st.rerun()
         
-        # Navigation and main content
+        # Sidebar navigation
         view = show_navigation()
         
-        if view == "Upload":
-            show_upload_section()
-        elif view == "Status":
-            show_status_section()
-        elif view == "History":
-            show_history_section()
-        elif view == "Analytics":
-            show_enhanced_analytics()
+        # Main content container
+        with st.container():
+            if view == "Upload":
+                show_upload_section()
+            elif view == "Status":
+                show_status_section()
+            elif view == "History":
+                show_history_section()
+            elif view == "Analytics":
+                show_enhanced_analytics()
+        
+        # Footer
+        st.sidebar.divider()
+        st.sidebar.caption("""
+        © 2024 SignForMe.AI
+        Version 6.0
+        """)
 
 if __name__ == "__main__":
     main()
