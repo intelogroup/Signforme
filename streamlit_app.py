@@ -286,14 +286,14 @@ def main():
                 email = st.text_input("Email", placeholder="Enter your email")
                 password = st.text_input("Password", type="password", placeholder="Enter your password")
                 
-                submitted = st.form_submit_button("Login", use_container_width=True)
+                submitted = st.form_submit_button("Login")
                 
                 if submitted:
                     if login_user(email, password):
                         st.session_state['logged_in'] = True
                         log_user_action('login', 'User logged in successfully')
                         st.success("Login successful! Redirecting...")
-                        st.experimental_rerun()
+                        st.rerun()  # Rerun app to show main content
                     else:
                         st.error("Invalid email or password")
             
@@ -330,8 +330,8 @@ def main():
                 
                 if st.button("🚪 Logout"):
                     log_user_action('logout', 'User logged out')
-                    st.session_state['logged_in'] = False
-                    st.experimental_rerun()
+                    st.session_state['logged_in'] = False  # Reset login state for next session
+                    st.rerun()  # Rerun app to return to the login page
         
         # Sidebar navigation
         view = show_navigation()
