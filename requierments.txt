@@ -1,4 +1,22 @@
+# Core dependencies
 streamlit==1.39.0
 pandas==2.2.3
 requests==2.32.3
+
+# Date and time handling
 python-dateutil==2.8.2
+pytz==2024.1
+
+# Email support
+secure-smtplib==0.1.1
+
+# UI enhancements
+streamlit-option-menu==0.3.2
+streamlit-authenticator==0.2.3
+
+# Data handling
+numpy==1.24.3
+
+# Optional but recommended for better performance
+plotly==5.18.0  # for enhanced charts
+altair==5.2.0   # for advanced visualizations
