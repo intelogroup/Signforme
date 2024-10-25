@@ -1074,262 +1074,69 @@ def generate_analytics_report():
 
 
 def render_search():
-    """Render enhanced search interface with filters"""
+    """Render streamlined search interface"""
     st.title("Search Documents 🔍")
     
-    # Search interface
+    # Search bar and filters
     col1, col2 = st.columns([3, 1])
     with col1:
-        search_query = st.text_input("Search documents...", placeholder="Enter keywords, names, or document ID")
+        search_query = st.text_input("Search documents", placeholder="Enter keywords, names, or document ID")
     with col2:
-        search_type = st.selectbox(
-            "Search in",
-            ["All Fields", "Content", "Names", "Analysis", "Comments"]
-        )
-    
-    # Advanced filters
-    with st.expander("Advanced Filters"):
-        col1, col2, col3 = st.columns(3)
-        
+        search_in = st.selectbox("Search in", ["All", "Content", "Names", "Comments"])
+
+    # Filters in a cleaner layout
+    with st.expander("Filters"):
+        col1, col2 = st.columns(2)
         with col1:
-            status_filter = st.multiselect(
-                "Status",
-                list(STATUS_BADGES.keys())
-            )
-            date_range = st.date_input(
-                "Date Range",
-                value=(datetime.now() - timedelta(days=30), datetime.now())
-            )
-        
+            status_filter = st.multiselect("Status", list(STATUS_BADGES.keys()))
+            date_range = st.date_input("Date Range", [
+                datetime.now() - timedelta(days=30),
+                datetime.now()
+            ])
         with col2:
-            category_filter = st.multiselect(
-                "Category",
-                st.session_state.data['categories']
-            )
             uploader_filter = st.multiselect(
                 "Uploaded By",
                 [user['name'] for user in st.session_state.users.values()]
             )
-        
-        with col3:
-            tag_filter = st.multiselect(
-                "Tags",
-                list(st.session_state.data['tags'])
-            )
-            analysis_filter = st.multiselect(
-                "Analysis Status",
-                ["Not Started", "In Progress", "Completed", "Failed"]
-            )
-    
-    # Search execution
-    if search_query or status_filter or category_filter or tag_filter:
+            category_filter = st.multiselect("Category", 
+                ["Contract", "Invoice", "Report", "Legal", "HR", "Financial", "Other"])
+
+    # Execute search
+    if search_query or status_filter or category_filter:
         results = search_documents(
-            search_query,
-            search_type,
-            status_filter,
-            category_filter,
-            tag_filter,
-            date_range,
-            uploader_filter,
-            analysis_filter
+            search_query, search_in, status_filter, 
+            category_filter, date_range, uploader_filter
         )
         
         # Display results
-        st.subheader(f"Search Results ({len(results)} documents)")
+        st.subheader(f"Results ({len(results)} documents)")
         
         if results:
-            # Sort options
-            sort_by = st.selectbox(
-                "Sort by",
-                ["Relevance", "Date (Newest)", "Date (Oldest)", "Name"]
-            )
+            sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Name"])
+            sorted_results = sort_results(results, sort_by)
             
-            sorted_results = sort_search_results(results, sort_by)
-            
-            # Display results with pagination
-            items_per_page = 10
-            total_pages = (len(sorted_results) + items_per_page - 1) // items_per_page
-            
-            if total_pages > 1:
-                page = st.number_input(
-                    "Page",
-                    min_value=1,
-                    max_value=total_pages,
-                    value=1
-                )
-            else:
-                page = 1
-            
-            start_idx = (page - 1) * items_per_page
-            end_idx = min(start_idx + items_per_page, len(sorted_results))
-            
-            for doc in sorted_results[start_idx:end_idx]:
-                render_search_result(doc, search_query)
+            for doc in sorted_results:
+                with st.container():
+                    col1, col2, col3 = st.columns([3, 2, 1])
+                    with col1:
+                        st.write(f"{get_file_icon(doc['file_type'])} {doc['name']}")
+                        st.caption(f"Uploaded: {doc['upload_time'].strftime('%Y-%m-%d %H:%M')}")
+                    with col2:
+                        st.write(f"{STATUS_BADGES[doc['status']]['emoji']} {doc['status']}")
+                    with col3:
+                        if st.button("View", key=f"view_{doc['id']}"):
+                            st.session_state.app_state['selected_view'] = "Documents"
+                            st.session_state.app_state['selected_doc'] = doc['id']
+                            st.rerun()
+                st.divider()
         else:
-            st.info("No documents found matching your search criteria")
+            st.info("No matching documents found")
 
-def render_settings():
-    """Render settings page with user preferences and system configuration"""
-    st.title("Settings ⚙️")
-    
-    tabs = st.tabs(["User Preferences", "Notifications", "System Settings", "Help"])
-    
-    with tabs[0]:
-        st.subheader("User Preferences")
-        
-        # Get current user's preferences
-        user_email = st.session_state.app_state['current_user']['email']
-        user_prefs = st.session_state.users[user_email]['preferences']
-        
-        # UI preferences
-        st.write("### Interface Settings")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            theme = st.selectbox(
-                "Theme",
-                ["Light", "Dark"],
-                index=0 if user_prefs['theme'] == 'light' else 1
-            )
-            items_per_page = st.number_input(
-                "Items per page",
-                min_value=5,
-                max_value=50,
-                value=user_prefs['items_per_page']
-            )
-        
-        with col2:
-            language = st.selectbox(
-                "Language",
-                ["English", "French", "Spanish"],
-                index=0
-            )
-        
-        # Save preferences
-        if st.button("Save Interface Settings"):
-            user_prefs.update({
-                'theme': theme.lower(),
-                'items_per_page': items_per_page,
-                'language': language
-            })
-            st.success("Settings saved successfully!")
-    
-    with tabs[1]:
-        st.subheader("Notification Settings")
-        
-        # Email notifications
-        st.write("### Email Notifications")
-        email_notifications = st.checkbox(
-            "Enable email notifications",
-            value=user_prefs.get('notifications', True)
-        )
-        
-        if email_notifications:
-            st.multiselect(
-                "Notify me when",
-                [
-                    "Document is uploaded",
-                    "Analysis is completed",
-                    "Document is approved/rejected",
-                    "New comment is added",
-                    "Document is shared with me"
-                ],
-                default=["Document is uploaded", "Analysis is completed"]
-            )
-        
-        # Save notification settings
-        if st.button("Save Notification Settings"):
-            user_prefs['notifications'] = email_notifications
-            st.success("Notification settings saved!")
-    
-    with tabs[2]:
-        if st.session_state.app_state['current_user']['role'] == 'admin':
-            st.subheader("System Settings")
-            
-            # Document settings
-            st.write("### Document Settings")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.number_input(
-                    "Maximum file size (MB)",
-                    min_value=1,
-                    max_value=100,
-                    value=50
-                )
-                st.multiselect(
-                    "Allowed file types",
-                    ["txt", "pdf", "docx", "doc", "rtf"],
-                    default=["txt", "pdf", "docx"]
-                )
-            
-            with col2:
-                st.number_input(
-                    "Document retention period (days)",
-                    min_value=1,
-                    max_value=365,
-                    value=30
-                )
-                st.multiselect(
-                    "Required metadata fields",
-                    ["Category", "Tags", "Description"],
-                    default=["Category"]
-                )
-            
-            # Category management
-            st.write("### Category Management")
-            existing_categories = st.multiselect(
-                "Document Categories",
-                st.session_state.data['categories'],
-                default=st.session_state.data['categories']
-            )
-            
-            new_category = st.text_input("Add new category")
-            if new_category:
-                if st.button("Add Category"):
-                    st.session_state.data['categories'].append(new_category)
-                    st.success(f"Added category: {new_category}")
-                    st.rerun()
-            
-            # Save system settings
-            if st.button("Save System Settings"):
-                st.session_state.data['categories'] = existing_categories
-                st.success("System settings saved!")
-        else:
-            st.info("System settings are only available to administrators")
-    
-    with tabs[3]:
-        st.subheader("Help & Support")
-        
-        st.write("### Quick Start Guide")
-        st.markdown("""
-        1. **Upload Documents**: Click the Upload button to add new documents
-        2. **Analyze Content**: Use the AI analysis feature to extract information
-        3. **Review & Approve**: Admins can review and approve/reject documents
-        4. **Search & Filter**: Use the search page to find specific documents
-        5. **Track Activity**: Monitor document status and system activity
-        """)
-        
-        st.write("### Support")
-        with st.expander("Contact Information"):
-            st.write("For support, please contact:")
-            st.write("Email: support@signforme.ai")
-            st.write("Phone: +1 (555) 123-4567")
-        
-        with st.expander("FAQ"):
-            st.write("**Q: How do I reset my password?**")
-            st.write("A: Contact your administrator for password reset.")
-            
-            st.write("**Q: What file types are supported?**")
-            st.write("A: Currently we support TXT, PDF, and DOCX files.")
-            
-            st.write("**Q: How long are documents retained?**")
-            st.write("A: Documents are retained for 30 days by default.")
-
-def search_documents(query, search_type, status_filter, category_filter, tag_filter,
-                    date_range, uploader_filter, analysis_filter):
-    """Search documents with enhanced filtering"""
+def search_documents(query, search_in, status_filter, category_filter, date_range, uploader_filter):
+    """Search documents with filters"""
     results = []
+    query = query.lower() if query else ""
+    
     for doc in st.session_state.data['documents']:
         match = True
         
@@ -1338,49 +1145,30 @@ def search_documents(query, search_type, status_filter, category_filter, tag_fil
             match = False
         if category_filter and doc['category'] not in category_filter:
             match = False
-        if tag_filter and not any(tag in doc['tags'] for tag in tag_filter):
-            match = False
         if uploader_filter and st.session_state.users[doc['uploaded_by']]['name'] not in uploader_filter:
             match = False
-        if analysis_filter and doc['analysis_status'] not in analysis_filter:
+        
+        # Date filter
+        doc_date = doc['upload_time'].date()
+        if not (date_range[0] <= doc_date <= date_range[1]):
             match = False
         
-        # Apply date filter
-        if date_range:
-            doc_date = doc['upload_time'].date()
-            if not (date_range[0] <= doc_date <= date_range[1]):
-                match = False
-        
-        # Apply search query
+        # Search query
         if query:
-            query = query.lower()
-            if search_type == "Content":
+            if search_in == "Content":
                 match = match and query in doc['content'].lower()
-            elif search_type == "Names":
-                match = match and (
-                    query in doc['name'].lower() or
-                    (doc.get('analysis') and 
-                     query in doc['analysis']['sections'].get('NAMES & ENTITIES', '').lower())
-                )
-            elif search_type == "Analysis":
-                match = match and (
-                    doc.get('analysis') and 
-                    query in doc['analysis']['raw_text'].lower()
-                )
-            elif search_type == "Comments":
-                match = match and any(
-                    query in comment['text'].lower() 
-                    for comment in doc['comments']
-                )
-            else:  # All Fields
+            elif search_in == "Names":
+                match = match and (query in doc['name'].lower() or 
+                                 (doc.get('analysis') and query in doc['analysis'].lower()))
+            elif search_in == "Comments":
+                match = match and any(query in comment['text'].lower() 
+                                    for comment in doc['comments'])
+            else:  # All
                 match = match and (
                     query in doc['name'].lower() or
                     query in doc['content'].lower() or
-                    (doc.get('analysis') and 
-                     query in doc['analysis']['raw_text'].lower()) or
-                    any(query in comment['text'].lower() 
-                        for comment in doc['comments']) or
-                    query in doc['id'].lower()
+                    query in doc['id'].lower() or
+                    any(query in comment['text'].lower() for comment in doc['comments'])
                 )
         
         if match:
@@ -1388,45 +1176,89 @@ def search_documents(query, search_type, status_filter, category_filter, tag_fil
     
     return results
 
-def sort_search_results(results, sort_by):
-    """Sort search results based on selected criteria"""
-    if sort_by == "Date (Newest)":
+def sort_results(results, sort_by):
+    """Sort search results"""
+    if sort_by == "Newest":
         return sorted(results, key=lambda x: x['upload_time'], reverse=True)
-    elif sort_by == "Date (Oldest)":
+    elif sort_by == "Oldest":
         return sorted(results, key=lambda x: x['upload_time'])
-    elif sort_by == "Name":
+    else:  # Name
         return sorted(results, key=lambda x: x['name'])
-    else:  # Relevance - keep original order
-        return results
 
-def render_search_result(doc, query):
-    """Render a search result with highlighting"""
-    with st.container():
-        col1, col2, col3 = st.columns([3, 2, 1])
+def render_settings():
+    """Render settings interface"""
+    st.title("Settings ⚙️")
+    
+    # Settings tabs
+    tab1, tab2 = st.tabs(["User Settings", "System Settings"])
+    
+    with tab1:
+        st.subheader("User Preferences")
+        user_email = st.session_state.app_state['current_user']['email']
+        user = st.session_state.users[user_email]
         
+        # Interface settings
+        st.write("### Interface")
+        col1, col2 = st.columns(2)
         with col1:
-            st.write(f"{get_file_icon(doc['file_type'])} {doc['name']}")
-            st.caption(f"Uploaded by {st.session_state.users[doc['uploaded_by']]['name']} on "
-                      f"{doc['upload_time'].strftime('%Y-%m-%d %H:%M')}")
-        
+            theme = st.selectbox("Theme", ["Light", "Dark"], 
+                               index=0 if user.get('theme') == 'light' else 1)
+            show_previews = st.checkbox("Show document previews", 
+                                      value=user.get('show_previews', True))
         with col2:
-            st.write(f"Status: {STATUS_BADGES[doc['status']]['emoji']} {doc['status']}")
-            st.write(f"Category: {doc['category']}")
+            items_per_page = st.number_input("Items per page", 5, 50, 
+                                           value=user.get('items_per_page', 10))
         
-        with col3:
-            if st.button("View", key=f"view_search_{doc['id']}"):
-                st.session_state.app_state['selected_view'] = "Documents"
-                st.session_state.app_state['selected_doc'] = doc['id']
-                st.rerun()
+        # Notification settings
+        st.write("### Notifications")
+        email_notifications = st.checkbox("Email notifications", 
+                                        value=user.get('email_notifications', True))
         
-        if query:
-            # Show matching context
-            if doc.get('analysis'):
-                matches = [
-                    line for line in doc['analysis']['raw_text'].split('\n')
-                    if query.lower() in line.lower()
-                ]
-                if matches:
-                    with st.expander("Matching Content"):
-                        for match in matches[:3]:  # Show up to 3 matches
-                            st.write(match)
+        if st.button("Save Settings"):
+            user.update({
+                'theme': theme.lower(),
+                'show_previews': show_previews,
+                'items_per_page': items_per_page,
+                'email_notifications': email_notifications
+            })
+            st.success("Settings saved!")
+    
+    with tab2:
+        if st.session_state.app_state['current_user']['role'] == 'admin':
+            st.subheader("System Configuration")
+            
+            # Document settings
+            st.write("### Document Settings")
+            max_file_size = st.number_input("Maximum file size (MB)", 1, 100, 
+                                          value=50)
+            retention_days = st.number_input("Document retention (days)", 1, 365, 
+                                           value=30)
+            
+            # Categories
+            st.write("### Categories")
+            categories = st.multiselect(
+                "Document Categories",
+                ["Contract", "Invoice", "Report", "Legal", "HR", "Financial", "Other"],
+                default=st.session_state.data.get('categories', [])
+            )
+            
+            new_category = st.text_input("Add new category")
+            if new_category and st.button("Add"):
+                categories.append(new_category)
+                st.success(f"Added category: {new_category}")
+            
+            if st.button("Save System Settings"):
+                st.session_state.data['categories'] = categories
+                st.session_state.data['max_file_size'] = max_file_size
+                st.session_state.data['retention_days'] = retention_days
+                st.success("System settings saved!")
+        else:
+            st.info("System settings are only available to administrators")
+
+# Main UI handling
+def handle_navigation():
+    """Handle navigation between views"""
+    if st.session_state.app_state['selected_view'] == "Search":
+        render_search()
+    elif st.session_state.app_state['selected_view'] == "Settings":
+        render_settings()
