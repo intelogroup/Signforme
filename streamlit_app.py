@@ -1080,26 +1080,37 @@ def render_search():
     # Search bar and filters
     col1, col2 = st.columns([3, 1])
     with col1:
-        search_query = st.text_input("Search documents", placeholder="Enter keywords, names, or document ID")
+        search_query = st.text_input(
+            label="Search documents",
+            placeholder="Enter keywords, names, or document ID"
+        )
     with col2:
-        search_in = st.selectbox("Search in", ["All", "Content", "Names", "Comments"])
+        search_in = st.selectbox(
+            label="Search in",
+            options=["All", "Content", "Names", "Comments"]
+        )
 
     # Filters in a cleaner layout
     with st.expander("Filters"):
         col1, col2 = st.columns(2)
         with col1:
-            status_filter = st.multiselect("Status", list(STATUS_BADGES.keys()))
-            date_range = st.date_input("Date Range", [
-                datetime.now() - timedelta(days=30),
-                datetime.now()
-            ])
+            status_filter = st.multiselect(
+                label="Status",
+                options=list(STATUS_BADGES.keys())
+            )
+            date_range = st.date_input(
+                label="Date Range",
+                value=[datetime.now() - timedelta(days=30), datetime.now()]
+            )
         with col2:
             uploader_filter = st.multiselect(
-                "Uploaded By",
-                [user['name'] for user in st.session_state.users.values()]
+                label="Uploaded By",
+                options=[user['name'] for user in st.session_state.users.values()]
             )
-            category_filter = st.multiselect("Category", 
-                ["Contract", "Invoice", "Report", "Legal", "HR", "Financial", "Other"])
+            category_filter = st.multiselect(
+                label="Category",
+                options=["Contract", "Invoice", "Report", "Legal", "HR", "Financial", "Other"]
+            )
 
     # Execute search
     if search_query or status_filter or category_filter:
@@ -1112,7 +1123,10 @@ def render_search():
         st.subheader(f"Results ({len(results)} documents)")
         
         if results:
-            sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Name"])
+            sort_by = st.selectbox(
+                label="Sort by",
+                options=["Newest", "Oldest", "Name"]
+            )
             sorted_results = sort_results(results, sort_by)
             
             for doc in sorted_results:
@@ -1124,66 +1138,16 @@ def render_search():
                     with col2:
                         st.write(f"{STATUS_BADGES[doc['status']]['emoji']} {doc['status']}")
                     with col3:
-                        if st.button("View", key=f"view_{doc['id']}"):
-                            st.session_state.app_state['selected_view'] = "Documents"
-                            st.session_state.app_state['selected_doc'] = doc['id']
-                            st.rerun()
+                        if st.button(
+                            label=f"View {doc['id']}", 
+                            key=f"view_{doc['id']}"
+                        ):
+                            st.session_state['selected_view'] = "Documents"
+                            st.session_state['selected_doc'] = doc['id']
+                            st.experimental_rerun()  # Changed to experimental_rerun
                 st.divider()
         else:
             st.info("No matching documents found")
-
-def search_documents(query, search_in, status_filter, category_filter, date_range, uploader_filter):
-    """Search documents with filters"""
-    results = []
-    query = query.lower() if query else ""
-    
-    for doc in st.session_state.data['documents']:
-        match = True
-        
-        # Apply filters
-        if status_filter and doc['status'] not in status_filter:
-            match = False
-        if category_filter and doc['category'] not in category_filter:
-            match = False
-        if uploader_filter and st.session_state.users[doc['uploaded_by']]['name'] not in uploader_filter:
-            match = False
-        
-        # Date filter
-        doc_date = doc['upload_time'].date()
-        if not (date_range[0] <= doc_date <= date_range[1]):
-            match = False
-        
-        # Search query
-        if query:
-            if search_in == "Content":
-                match = match and query in doc['content'].lower()
-            elif search_in == "Names":
-                match = match and (query in doc['name'].lower() or 
-                                 (doc.get('analysis') and query in doc['analysis'].lower()))
-            elif search_in == "Comments":
-                match = match and any(query in comment['text'].lower() 
-                                    for comment in doc['comments'])
-            else:  # All
-                match = match and (
-                    query in doc['name'].lower() or
-                    query in doc['content'].lower() or
-                    query in doc['id'].lower() or
-                    any(query in comment['text'].lower() for comment in doc['comments'])
-                )
-        
-        if match:
-            results.append(doc)
-    
-    return results
-
-def sort_results(results, sort_by):
-    """Sort search results"""
-    if sort_by == "Newest":
-        return sorted(results, key=lambda x: x['upload_time'], reverse=True)
-    elif sort_by == "Oldest":
-        return sorted(results, key=lambda x: x['upload_time'])
-    else:  # Name
-        return sorted(results, key=lambda x: x['name'])
 
 def render_settings():
     """Render settings interface"""
@@ -1194,27 +1158,38 @@ def render_settings():
     
     with tab1:
         st.subheader("User Preferences")
-        user_email = st.session_state.app_state['current_user']['email']
+        user_email = st.session_state['current_user']['email']
         user = st.session_state.users[user_email]
         
         # Interface settings
         st.write("### Interface")
         col1, col2 = st.columns(2)
         with col1:
-            theme = st.selectbox("Theme", ["Light", "Dark"], 
-                               index=0 if user.get('theme') == 'light' else 1)
-            show_previews = st.checkbox("Show document previews", 
-                                      value=user.get('show_previews', True))
+            theme = st.selectbox(
+                label="Theme",
+                options=["Light", "Dark"],
+                index=0 if user.get('theme') == 'light' else 1
+            )
+            show_previews = st.checkbox(
+                label="Show document previews",
+                value=user.get('show_previews', True)
+            )
         with col2:
-            items_per_page = st.number_input("Items per page", 5, 50, 
-                                           value=user.get('items_per_page', 10))
+            items_per_page = st.number_input(
+                label="Items per page",
+                min_value=5,
+                max_value=50,
+                value=user.get('items_per_page', 10)
+            )
         
         # Notification settings
         st.write("### Notifications")
-        email_notifications = st.checkbox("Email notifications", 
-                                        value=user.get('email_notifications', True))
+        email_notifications = st.checkbox(
+            label="Email notifications",
+            value=user.get('email_notifications', True)
+        )
         
-        if st.button("Save Settings"):
+        if st.button(label="Save User Settings"):
             user.update({
                 'theme': theme.lower(),
                 'show_previews': show_previews,
@@ -1224,30 +1199,38 @@ def render_settings():
             st.success("Settings saved!")
     
     with tab2:
-        if st.session_state.app_state['current_user']['role'] == 'admin':
+        if st.session_state['current_user']['role'] == 'admin':
             st.subheader("System Configuration")
             
             # Document settings
             st.write("### Document Settings")
-            max_file_size = st.number_input("Maximum file size (MB)", 1, 100, 
-                                          value=50)
-            retention_days = st.number_input("Document retention (days)", 1, 365, 
-                                           value=30)
+            max_file_size = st.number_input(
+                label="Maximum file size (MB)",
+                min_value=1,
+                max_value=100,
+                value=50
+            )
+            retention_days = st.number_input(
+                label="Document retention (days)",
+                min_value=1,
+                max_value=365,
+                value=30
+            )
             
             # Categories
             st.write("### Categories")
             categories = st.multiselect(
-                "Document Categories",
-                ["Contract", "Invoice", "Report", "Legal", "HR", "Financial", "Other"],
+                label="Document Categories",
+                options=["Contract", "Invoice", "Report", "Legal", "HR", "Financial", "Other"],
                 default=st.session_state.data.get('categories', [])
             )
             
-            new_category = st.text_input("Add new category")
-            if new_category and st.button("Add"):
+            new_category = st.text_input(label="Add new category")
+            if new_category and st.button(label="Add Category"):
                 categories.append(new_category)
                 st.success(f"Added category: {new_category}")
             
-            if st.button("Save System Settings"):
+            if st.button(label="Save System Settings"):
                 st.session_state.data['categories'] = categories
                 st.session_state.data['max_file_size'] = max_file_size
                 st.session_state.data['retention_days'] = retention_days
@@ -1255,10 +1238,14 @@ def render_settings():
         else:
             st.info("System settings are only available to administrators")
 
-# Main UI handling
-def handle_navigation():
-    """Handle navigation between views"""
-    if st.session_state.app_state['selected_view'] == "Search":
-        render_search()
-    elif st.session_state.app_state['selected_view'] == "Settings":
-        render_settings()
+def main():
+    if 'current_user' in st.session_state:
+        if st.session_state['selected_view'] == "Search":
+            render_search()
+        elif st.session_state['selected_view'] == "Settings":
+            render_settings()
+    else:
+        st.error("Please log in to access this feature.")
+
+if __name__ == "__main__":
+    main()
