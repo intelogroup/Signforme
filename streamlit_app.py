@@ -30,10 +30,10 @@ if 'analyzed_docs' not in st.session_state:
     st.session_state['analyzed_docs'] = set()
 if 'users' not in st.session_state:
     st.session_state['users'] = {
-        'jimkalinov@gmail.com': {
-            'password': 'Goldyear2023#*',
+        'maxhaiti@aol.com': {
+            'password': 'Admin123',
             'role': 'admin',
-            'name': 'Jim Kalinov'
+            'name': 'Maxi Raymonville'
         },
         'userpal@example.com': {
             'password': 'System1234',
