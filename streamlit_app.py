@@ -39,7 +39,13 @@ if 'users' not in st.session_state:
             'password': 'System1234',
             'role': 'user',
             'name': 'User Pal'
+        },
+        'jimkalinov@example.com': {
+            'password': 'System1234',
+            'role': 'user',
+            'name': 'Kalinov Jim'
         }
+        
     }
 if 'current_user' not in st.session_state:
     st.session_state['current_user'] = None
